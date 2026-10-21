@@ -416,7 +416,7 @@ int main(int c, char** v)
 	parms.argc = com_argc;
 	parms.argv = com_argv;
 
-	Sys_Printf("NakedWinQuake startup\n");
+	Sys_Printf("%s startup\n", PROJECTID);
 	Sys_Printf("Working directory: %s\n", basedir);
 	Sys_Init();
 

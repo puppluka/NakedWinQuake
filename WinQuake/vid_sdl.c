@@ -372,7 +372,7 @@ void VID_Init(unsigned char* palette)
     if (screenWidth < 320) screenWidth = 320;
     if (screenHeight < 200) screenHeight = 200;
 
-    window = SDL_CreateWindow("NakedWinQuake",
+    window = SDL_CreateWindow( PROJECTID,
                                screenWidth, screenHeight,
                                window_flags);
     if (!window) {
@@ -403,7 +403,7 @@ void VID_Init(unsigned char* palette)
     }
 
     // Create streaming texture - GPU will handle the blitting
-    texture = SDL_CreateTexture(renderer,
+    texture = SDL_CreateTexture( renderer,
                                  SDL_PIXELFORMAT_ARGB8888,
                                  SDL_TEXTUREACCESS_STREAMING,
                                  vid.width, vid.height);
@@ -437,7 +437,7 @@ void VID_Init(unsigned char* palette)
 
     VID_SetPalette(palette);
 
-    sprintf(caption, "NakedWinQuake - Version %4.2f", (float)VERSION);
+    sprintf(caption, "%s - Version %4.2f", PROJECTID, (float)VERSION);
     SDL_SetWindowTitle(window, caption);
 
     VGA_width = vid.conwidth = vid.width;

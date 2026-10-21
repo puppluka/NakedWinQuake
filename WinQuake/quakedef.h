@@ -1,36 +1,20 @@
-/*
-Copyright (C) 1996-1997 Id Software, Inc.
-
-This program is free software; you can redistribute it and/or
-modify it under the terms of the GNU General Public License
-as published by the Free Software Foundation; either version 2
-of the License, or (at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  
-
-See the GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program; if not, write to the Free Software
-Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
-
-*/
 // quakedef.h -- primary header for client
 
-//#define	GLTEST			// experimental stuff
+/*
+#define	GLTEST				// experimental stuff
+*/
 
-#define	QUAKE_GAME			// as opposed to utilities
+#define	QUAKE_GAME			// NOT utilities
+#define	QUAKE_VERSION		1.09
 
-#define	VERSION				1.09
 #define	GLQUAKE_VERSION		1.00
 #define	D3DQUAKE_VERSION	0.01
 #define	WINQUAKE_VERSION	0.996
 #define	LINUX_VERSION		1.30
 #define	X11_VERSION			1.10
 
-#define LUKA_VERSION		0.10
+#define	PROJECTID			"Iqhor"
+#define VERSION				0.10
 
 //#define	PARANOID			// speed sapping error checking
 
@@ -54,9 +38,9 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #define id386	0
 
 #if id386
-#define UNALIGNED_OK	1	// set to 0 if unaligned accesses are not supported
+	#define UNALIGNED_OK	1	// set to 0 if unaligned accesses are not supported
 #else
-#define UNALIGNED_OK	0
+	#define UNALIGNED_OK	0
 #endif
 
 // !!! if this is changed, it must be changed in d_ifacea.h too !!!
@@ -71,10 +55,8 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 // up / down
 #define	PITCH	0
-
 // left / right
 #define	YAW		1
-
 // fall over
 #define	ROLL	2
 
@@ -87,9 +69,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #define	MAX_MSGLEN		8000		// max length of a reliable message
 #define	MAX_DATAGRAM	1024		// max length of unreliable message
 
-//
 // per-level limits
-//
 #define	MAX_EDICTS		600			// FIXME: ouch! ouch! ouch!
 #define	MAX_LIGHTSTYLES	64
 #define	MAX_MODELS		256			// these are sent over the net as bytes
@@ -99,9 +79,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #define	MAX_STYLESTRING	64
 
-//
 // stats are integers communicated to the client by the server
-//
 #define	MAX_CL_STATS		32
 #define	STAT_HEALTH			0
 #define	STAT_FRAGS			1
