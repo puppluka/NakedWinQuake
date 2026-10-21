@@ -33,6 +33,11 @@ cvar_t  registered = {"registered","0"};
 cvar_t  cmdline = {"cmdline","0", false, true};
 
 qboolean        com_modified;   // set true if using non-id files
+qboolean        com_base_modified;
+static qboolean com_active_modified;
+searchpath_t   *com_searchpaths;
+searchpath_t   *com_base_searchpaths;
+char            com_basedir[MAX_OSPATH];
 
 qboolean		proghack;
 
@@ -1202,24 +1207,6 @@ int     com_filesize;
 
 
 //
-// in memory
-//
-
-typedef struct
-{
-	char    name[MAX_QPATH];
-	int             filepos, filelen;
-} packfile_t;
-
-typedef struct pack_s
-{
-	char    filename[MAX_OSPATH];
-	int             handle;
-	int             numfiles;
-	packfile_t      *files;
-} pack_t;
-
-//
 // on disk
 //
 typedef struct
@@ -1237,17 +1224,10 @@ typedef struct
 
 #define MAX_FILES_IN_PACK       2048
 
+typedef char pack_name_size_must_match[(MAX_QPATH == 64) ? 1 : -1];
+
 char    com_cachedir[MAX_OSPATH];
 char    com_gamedir[MAX_OSPATH];
-
-typedef struct searchpath_s
-{
-	char    filename[MAX_OSPATH];
-	pack_t  *pack;          // only one of filename / pack will be used
-	struct searchpath_s *next;
-} searchpath_t;
-
-searchpath_t    *com_searchpaths;
 
 /*
 ============
@@ -1394,7 +1374,7 @@ int COM_FindFile (char *filename, int *handle, FILE **file)
 		// look through all the pak file elements
 			pak = search->pack;
 			for (i=0 ; i<pak->numfiles ; i++)
-				if (!strcmp (pak->files[i].name, filename))
+				if (!Q_strcasecmp (pak->files[i].name, filename))
 				{       // found it!
 					Sys_Printf ("PackFile: %s : %s\n",pak->filename, filename);
 					if (handle)
@@ -1616,7 +1596,7 @@ Loads the header and directory, adding the files at the beginning
 of the list so they override previous pack files.
 =================
 */
-pack_t *COM_LoadPackFile (char *packfile)
+static pack_t *COM_LoadPackFileInternal (char *packfile, qboolean zone_alloc)
 {
 	dpackheader_t   header;
 	int                             i;
@@ -1624,33 +1604,73 @@ pack_t *COM_LoadPackFile (char *packfile)
 	int                             numpackfiles;
 	pack_t                  *pack;
 	int                             packhandle;
+	int                             packlength;
 	dpackfile_t             info[MAX_FILES_IN_PACK];
 	unsigned short          crc;
 
-	if (Sys_FileOpenRead (packfile, &packhandle) == -1)
+	if (strlen(packfile) >= MAX_OSPATH)
+		return NULL;
+	packlength = Sys_FileOpenRead (packfile, &packhandle);
+	if (packlength == -1)
+		return NULL;
+	if (packlength < (int)sizeof(header) ||
+		Sys_FileRead (packhandle, (void *)&header, sizeof(header)) != (int)sizeof(header))
 	{
-//              Con_Printf ("Couldn't open %s\n", packfile);
+		Con_Printf ("Ignoring truncated packfile %s\n", packfile);
+		Sys_FileClose (packhandle);
 		return NULL;
 	}
-	Sys_FileRead (packhandle, (void *)&header, sizeof(header));
 	if (header.id[0] != 'P' || header.id[1] != 'A'
 	|| header.id[2] != 'C' || header.id[3] != 'K')
-		Sys_Error ("%s is not a packfile", packfile);
+	{
+		Con_Printf ("Ignoring invalid packfile %s\n", packfile);
+		Sys_FileClose (packhandle);
+		return NULL;
+	}
 	header.dirofs = LittleLong (header.dirofs);
 	header.dirlen = LittleLong (header.dirlen);
+	if (header.dirlen < 0 || header.dirlen % (int)sizeof(dpackfile_t) ||
+		header.dirlen > (int)sizeof(info) || header.dirofs < (int)sizeof(header) ||
+		header.dirofs > packlength || header.dirlen > packlength - header.dirofs)
+	{
+		Con_Printf ("Ignoring packfile with invalid directory %s\n", packfile);
+		Sys_FileClose (packhandle);
+		return NULL;
+	}
 
 	numpackfiles = header.dirlen / sizeof(dpackfile_t);
-
 	if (numpackfiles > MAX_FILES_IN_PACK)
-		Sys_Error ("%s has %i files", packfile, numpackfiles);
-
+	{
+		Con_Printf ("Ignoring packfile with too many entries %s\n", packfile);
+		Sys_FileClose (packhandle);
+		return NULL;
+	}
 	if (numpackfiles != PAK0_COUNT)
 		com_modified = true;    // not the original file
 
-	newfiles = Hunk_AllocName (numpackfiles * sizeof(packfile_t), "packfile");
-
 	Sys_FileSeek (packhandle, header.dirofs);
-	Sys_FileRead (packhandle, (void *)info, header.dirlen);
+	if (Sys_FileRead (packhandle, (void *)info, header.dirlen) != header.dirlen)
+	{
+		Con_Printf ("Ignoring unreadable packfile directory %s\n", packfile);
+		Sys_FileClose (packhandle);
+		return NULL;
+	}
+
+	for (i = 0; i < numpackfiles; i++)
+	{
+		int filepos = LittleLong (info[i].filepos);
+		int filelen = LittleLong (info[i].filelen);
+		if (filepos < 0 || filelen < 0 || filepos > packlength ||
+			filelen > packlength - filepos)
+		{
+			Con_Printf ("Ignoring packfile with invalid entry %d in %s\n", i, packfile);
+			Sys_FileClose (packhandle);
+			return NULL;
+		}
+	}
+
+	newfiles = zone_alloc ? Z_Malloc (numpackfiles * sizeof(packfile_t)) :
+		Hunk_AllocName (numpackfiles * sizeof(packfile_t), "packfile");
 
 // crc the directory to check for modifications
 	CRC_Init (&crc);
@@ -1662,12 +1682,13 @@ pack_t *COM_LoadPackFile (char *packfile)
 // parse the directory
 	for (i=0 ; i<numpackfiles ; i++)
 	{
-		strcpy (newfiles[i].name, info[i].name);
+		memcpy (newfiles[i].name, info[i].name, sizeof(info[i].name));
+		newfiles[i].name[sizeof(info[i].name)] = 0;
 		newfiles[i].filepos = LittleLong(info[i].filepos);
 		newfiles[i].filelen = LittleLong(info[i].filelen);
 	}
 
-	pack = Hunk_Alloc (sizeof (pack_t));
+	pack = zone_alloc ? Z_Malloc (sizeof (pack_t)) : Hunk_Alloc (sizeof (pack_t));
 	strcpy (pack->filename, packfile);
 	pack->handle = packhandle;
 	pack->numfiles = numpackfiles;
@@ -1677,6 +1698,10 @@ pack_t *COM_LoadPackFile (char *packfile)
 	return pack;
 }
 
+pack_t *COM_LoadPackFile (char *packfile)
+{
+	return COM_LoadPackFileInternal (packfile, false);
+}
 
 /*
 ================
@@ -1715,7 +1740,7 @@ void COM_AddGameDirectory (char *dir)
 		search = Hunk_Alloc (sizeof(searchpath_t));
 		search->pack = pak;
 		search->next = com_searchpaths;
-		com_searchpaths = search;               
+		com_searchpaths = search;
 	}
 
 //
@@ -1774,12 +1799,30 @@ void COM_InitFilesystem (void)
 //
 // start up with GAMENAME by default (id1)
 //
+	if (strlen(basedir) >= sizeof(com_basedir))
+		Sys_Error ("-basedir path is too long");
+	strncpy (com_basedir, basedir, sizeof(com_basedir) - 1);
+	com_basedir[sizeof(com_basedir) - 1] = 0;
+
 	COM_AddGameDirectory (va("%s/"GAMENAME, basedir) );
+	com_base_searchpaths = com_searchpaths;
+	com_base_modified = com_modified;
+	com_active_modified = com_base_modified;
 
 	if (COM_CheckParm ("-rogue"))
+	{
 		COM_AddGameDirectory (va("%s/rogue", basedir) );
+		com_base_searchpaths = com_searchpaths;
+		com_base_modified = true;
+		com_active_modified = true;
+	}
 	if (COM_CheckParm ("-hipnotic"))
+	{
 		COM_AddGameDirectory (va("%s/hipnotic", basedir) );
+		com_base_searchpaths = com_searchpaths;
+		com_base_modified = true;
+		com_active_modified = true;
+	}
 
 //
 // -game <gamedir>
@@ -1788,8 +1831,29 @@ void COM_InitFilesystem (void)
 	i = COM_CheckParm ("-game");
 	if (i && i < com_argc-1)
 	{
+		char *gamename;
+
 		com_modified = true;
 		COM_AddGameDirectory (va("%s/%s", basedir, com_argv[i+1]));
+		com_base_searchpaths = com_searchpaths;
+		com_base_modified = true;
+		com_active_modified = true;
+
+		/* -game <mission pack> has to raise the same engine flags the "game"
+		 * command sets, otherwise the model precache parsing and the episode
+		 * menu keep treating a mission pack as the base game. */
+		gamename = COM_SkipPath (com_gamedir);
+		if (!Q_strcasecmp (gamename, "hipnotic") ||
+			!Q_strcasecmp (gamename, "quoth"))
+		{
+			hipnotic = true;
+			standard_quake = false;
+		}
+		else if (!Q_strcasecmp (gamename, "rogue"))
+		{
+			rogue = true;
+			standard_quake = false;
+		}
 	}
 
 //
@@ -1822,6 +1886,216 @@ void COM_InitFilesystem (void)
 
 	if (COM_CheckParm ("-proghack"))
 		proghack = true;
+}
+
+/*
+=====================
+Game directory staging
+=====================
+*/
+static searchpath_t *com_prepared_game_paths;
+static char com_prepared_game_dir[MAX_OSPATH];
+static qboolean com_prepared_modified;
+static searchpath_t *com_saved_searchpaths;
+static searchpath_t *com_prepared_tail;
+static qboolean com_prepared_mounted;
+
+static void COM_FreeGamePaths (searchpath_t *search, searchpath_t *stop)
+{
+	searchpath_t *next;
+	while (search && search != stop)
+	{
+		next = search->next;
+		if (search->pack)
+		{
+			Sys_FileClose (search->pack->handle);
+			Z_Free (search->pack->files);
+			Z_Free (search->pack);
+		}
+		Z_Free (search);
+		search = next;
+	}
+}
+
+static qboolean COM_PrependGameDirectory (char *dir, searchpath_t **paths)
+{
+	int i;
+	searchpath_t *search;
+	pack_t *pak;
+	char pakfile[MAX_OSPATH];
+
+	if (strlen(dir) >= MAX_OSPATH || strlen(dir) > sizeof(((searchpath_t *)0)->filename) - 1)
+		goto failed;
+	search = Z_Malloc (sizeof(*search));
+	if (!search)
+		goto failed;
+	memset (search, 0, sizeof(*search));
+	strcpy (search->filename, dir);
+	search->next = *paths;
+	*paths = search;
+	for (i = 0; ; i++)
+	{
+		if (snprintf (pakfile, sizeof(pakfile), "%s/pak%i.pak", dir, i) >= (int)sizeof(pakfile))
+			goto failed;
+		pak = COM_LoadPackFileInternal (pakfile, true);
+		if (!pak)
+			return true;
+		search = Z_Malloc (sizeof(*search));
+		if (!search)
+		{
+			Sys_FileClose (pak->handle);
+			Z_Free (pak->files);
+			Z_Free (pak);
+			goto failed;
+		}
+		memset (search, 0, sizeof(*search));
+		search->pack = pak;
+		search->next = *paths;
+		*paths = search;
+	}
+failed:
+	COM_FreeGamePaths (*paths, NULL);
+	*paths = NULL;
+	return false;
+}
+
+static qboolean COM_GameDirectoryMatches (searchpath_t **paths, char *dir)
+{
+	searchpath_t *search = *paths;
+	while (search && search != com_base_searchpaths && search->pack)
+		search = search->next;
+	if (!search || search == com_base_searchpaths || Q_strcasecmp(search->filename, dir))
+		return false;
+	search = search->next;
+	while (search && search != com_base_searchpaths && search->pack)
+		search = search->next;
+	*paths = search;
+	return true;
+}
+
+qboolean COM_GameDirectoriesMatch (char *gamedir, char *missiondir, qboolean use_base)
+{
+	searchpath_t *search = com_searchpaths;
+	if (com_base_searchpaths)
+	{
+		while (search && search != com_base_searchpaths)
+			search = search->next;
+		if (search != com_base_searchpaths)
+			return false;
+	}
+	else if (search)
+		return false;
+	/* -path replaces the normal base tree; only the current path set is safe. */
+	if (COM_CheckParm ("-path"))
+		return false;
+	search = com_searchpaths;
+	if (use_base)
+		return !missiondir && search == com_base_searchpaths;
+	if (missiondir)
+	{
+		if (!COM_GameDirectoryMatches (&search, gamedir) || !COM_GameDirectoryMatches (&search, missiondir))
+			return false;
+		return search == com_base_searchpaths;
+	}
+	if (!COM_GameDirectoryMatches (&search, gamedir))
+		return false;
+	return search == com_base_searchpaths || (search && !search->pack && search->next == com_base_searchpaths);
+}
+
+qboolean COM_PrepareGameDirectories (char *gamedir, char *missiondir, qboolean use_base)
+{
+	searchpath_t *prepared = NULL;
+	qboolean old_modified = com_modified;
+	if (com_prepared_game_paths || com_prepared_game_dir[0] || com_prepared_mounted || !gamedir ||
+		strlen(gamedir) >= MAX_OSPATH || (missiondir && strlen(missiondir) >= MAX_OSPATH))
+		return false;
+	com_modified = com_base_modified;
+	if (missiondir && *missiondir && !COM_PrependGameDirectory (missiondir, &prepared))
+		goto failed;
+	if (!use_base && !COM_PrependGameDirectory (gamedir, &prepared))
+		goto failed;
+	if (snprintf (com_prepared_game_dir, sizeof(com_prepared_game_dir), "%s", gamedir) >= (int)sizeof(com_prepared_game_dir))
+		goto failed;
+	com_prepared_game_paths = prepared;
+	com_prepared_modified = com_modified || com_base_modified || !use_base;
+	com_modified = old_modified;
+	return true;
+failed:
+	COM_FreeGamePaths (prepared, NULL);
+	com_modified = old_modified;
+	return false;
+}
+
+void COM_BeginPreparedGameDirectories (void)
+{
+	if (!com_prepared_game_dir[0] || com_prepared_mounted)
+		Sys_Error ("COM_BeginPreparedGameDirectories: invalid state");
+	com_saved_searchpaths = com_searchpaths;
+	if (com_prepared_game_paths)
+	{
+		com_prepared_tail = com_prepared_game_paths;
+		while (com_prepared_tail->next)
+			com_prepared_tail = com_prepared_tail->next;
+		com_prepared_tail->next = com_base_searchpaths;
+		com_searchpaths = com_prepared_game_paths;
+	}
+	else
+	{
+		com_prepared_tail = NULL;
+		com_searchpaths = com_base_searchpaths;
+	}
+	com_prepared_mounted = true;
+}
+
+void COM_EndPreparedGameDirectories (void)
+{
+	if (!com_prepared_mounted)
+		Sys_Error ("COM_EndPreparedGameDirectories: invalid state");
+	com_searchpaths = com_saved_searchpaths;
+	if (com_prepared_tail)
+		com_prepared_tail->next = NULL;
+	com_saved_searchpaths = NULL;
+	com_prepared_tail = NULL;
+	com_prepared_mounted = false;
+}
+
+void COM_CancelPreparedGameDirectories (void)
+{
+	if (com_prepared_mounted)
+		COM_EndPreparedGameDirectories ();
+	COM_FreeGamePaths (com_prepared_game_paths, NULL);
+	com_prepared_game_paths = NULL;
+	com_prepared_game_dir[0] = 0;
+	com_prepared_modified = false;
+}
+
+void COM_CommitGameDirectories (void)
+{
+	if (!com_prepared_game_dir[0] || !com_prepared_mounted)
+		Sys_Error ("COM_CommitGameDirectories: invalid state");
+	COM_FreeGamePaths (com_saved_searchpaths, com_base_searchpaths);
+	com_searchpaths = com_prepared_game_paths ? com_prepared_game_paths : com_base_searchpaths;
+	strcpy (com_gamedir, com_prepared_game_dir);
+	com_active_modified = com_prepared_modified;
+	com_modified = com_active_modified;
+	com_prepared_game_paths = NULL;
+	com_prepared_game_dir[0] = 0;
+	com_prepared_modified = false;
+	com_saved_searchpaths = NULL;
+	com_prepared_tail = NULL;
+	com_prepared_mounted = false;
+}
+
+void COM_ClearGameDirectories (void)
+{
+	searchpath_t *search;
+	for (search = com_searchpaths; search && search != com_base_searchpaths; search = search->next)
+		;
+	if (com_base_searchpaths && search != com_base_searchpaths)
+		Sys_Error ("COM_ClearGameDirectories: base path missing");
+	COM_FreeGamePaths (com_searchpaths, com_base_searchpaths);
+	com_searchpaths = com_base_searchpaths;
+	com_modified = com_active_modified;
 }
 
 

@@ -20,3 +20,5 @@ WinQuake/Debug/WinQuakeVS2022.vcxproj.FileListAbsolute.txt
 *.db-wal
 *.db-shm
 /WinQuake/.vs
+/WinQuake/WinQuakeVS2022
+/WinQuake/x64

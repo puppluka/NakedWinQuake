@@ -126,15 +126,12 @@ void CL_Disconnect (void)
 
 	cls.demoplayback = cls.timedemo = false;
 	cls.signon = 0;
-}
-
-void CL_Disconnect_f (void)
+}void CL_Disconnect_f (void)
 {
 	CL_Disconnect ();
 	if (sv.active)
 		Host_ShutdownServer (false);
 }
-
 
 
 
@@ -237,6 +234,7 @@ void CL_NextDemo (void)
 	}
 
 	sprintf (str,"playdemo %s\n", cls.demos[cls.demonum]);
+	cls.demoloopnext = true;	// this playdemo is the attract loop, not a user request
 	Cbuf_InsertText (str);
 	cls.demonum++;
 }

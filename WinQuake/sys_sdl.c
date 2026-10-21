@@ -1,8 +1,11 @@
-/* -*- Mode: C; tab-width: 4 -*- */
-
 #include <SDL3/SDL.h>
 
-#ifndef _WIN32
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#define stat _stat
+#define S_ISDIR(mode) (((mode) & _S_IFMT) == _S_IFDIR)
+#else
 #include <unistd.h>
 #include <sys/time.h>
 #include <sys/ipc.h>
@@ -10,16 +13,24 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <sys/mman.h>
-#else
+#endif
+
+#ifdef _WIN32
 #include <windows.h>
 #include <direct.h>
 #include <time.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <io.h>
+#include <process.h>
 #endif
 
 #include <signal.h>
 #include <stdlib.h>
 #include <limits.h>
+#ifndef _WIN32
 #include <sys/types.h>
+#endif
 #include <fcntl.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -29,12 +40,24 @@
 
 #include "quakedef.h"
 
+#ifdef _WIN32
+#include <io.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#define mkdir(path, mode) _mkdir(path)
+#endif
+
+extern void VID_PlayStartupVideo(const char* filename);
 qboolean			isDedicated;
 
 int noconinput = 0;
 
 char* basedir = ".";
+#ifdef _WIN32
+char* cachedir = NULL;
+#else
 char* cachedir = "/tmp";
+#endif
 
 cvar_t  sys_linerefresh = { "sys_linerefresh","0" };// set for entity display
 cvar_t  sys_nostdout = { "sys_nostdout","0" };
@@ -49,15 +72,23 @@ void Sys_DebugNumber(int y, int val)
 
 void Sys_Printf(char* fmt, ...)
 {
-	va_list		argptr;
-	char		text[1024];
+	va_list argptr;
+	char text[1024];
 
 	va_start(argptr, fmt);
-	vsprintf(text, fmt, argptr);
+	vsnprintf(text, sizeof(text), fmt, argptr);
 	va_end(argptr);
-	fprintf(stderr, "%s", text);
+	fputs(text, stderr);
+	fflush(stderr);
+}
 
-	//Con_Print (text);
+static void Sys_ShowFatalError(const char *message)
+{
+#ifdef _WIN32
+	MessageBoxA(NULL, message, "Quake startup error", MB_OK | MB_ICONERROR | MB_TASKMODAL);
+#else
+	fprintf(stderr, "%s\n", message);
+#endif
 }
 
 void Sys_Quit(void)
@@ -103,17 +134,18 @@ void Sys_HighFPPrecision(void)
 
 void Sys_Error(char* error, ...)
 {
-	va_list     argptr;
-	char        string[1024];
+	va_list argptr;
+	char string[1024];
 
 	va_start(argptr, error);
-	vsprintf(string, error, argptr);
+	vsnprintf(string, sizeof(string), error, argptr);
 	va_end(argptr);
 	fprintf(stderr, "Error: %s\n", string);
+	fflush(stderr);
+	Sys_ShowFatalError(string);
 
 	Host_Shutdown();
 	exit(1);
-
 }
 
 void Sys_Warn(char* warning, ...)
@@ -135,7 +167,7 @@ FILE IO
 ===============================================================================
 */
 
-#define	MAX_HANDLES		10
+#define	MAX_HANDLES		64
 FILE* sys_handles[MAX_HANDLES];
 
 int		findhandle(void)
@@ -172,14 +204,12 @@ int Sys_FileOpenRead(char* path, int* hndl)
 	FILE* f;
 	int		i;
 
-	i = findhandle();
-
 	f = fopen(path, "rb");
-	if (!f)
-	{
+	if (!f) {
 		*hndl = -1;
 		return -1;
 	}
+	i = findhandle();
 	sys_handles[i] = f;
 	*hndl = i;
 
@@ -191,11 +221,10 @@ int Sys_FileOpenWrite(char* path)
 	FILE* f;
 	int		i;
 
-	i = findhandle();
-
 	f = fopen(path, "wb");
 	if (!f)
 		Sys_Error("Error opening %s: %s", path, strerror(errno));
+	i = findhandle();
 	sys_handles[i] = f;
 
 	return i;
@@ -203,7 +232,7 @@ int Sys_FileOpenWrite(char* path)
 
 void Sys_FileClose(int handle)
 {
-	if (handle >= 0) {
+	if (handle > 0 && handle < MAX_HANDLES && sys_handles[handle]) {
 		fclose(sys_handles[handle]);
 		sys_handles[handle] = NULL;
 	}
@@ -211,7 +240,7 @@ void Sys_FileClose(int handle)
 
 void Sys_FileSeek(int handle, int position)
 {
-	if (handle >= 0) {
+	if (handle > 0 && handle < MAX_HANDLES && sys_handles[handle]) {
 		fseek(sys_handles[handle], position, SEEK_SET);
 	}
 }
@@ -222,7 +251,7 @@ int Sys_FileRead(int handle, void* dst, int count)
 	int size, done;
 
 	size = 0;
-	if (handle >= 0) {
+	if (handle > 0 && handle < MAX_HANDLES && sys_handles[handle]) {
 		data = dst;
 		while (count > 0) {
 			done = fread(data, 1, count, sys_handles[handle]);
@@ -233,8 +262,7 @@ int Sys_FileRead(int handle, void* dst, int count)
 			count -= done;
 			size += done;
 		}
-	}
-	return size;
+	}		return size;
 
 }
 
@@ -244,10 +272,10 @@ int Sys_FileWrite(int handle, void* src, int count)
 	int size, done;
 
 	size = 0;
-	if (handle >= 0) {
+	if (handle > 0 && handle < MAX_HANDLES && sys_handles[handle]) {
 		data = src;
 		while (count > 0) {
-			done = fread(data, 1, count, sys_handles[handle]);
+			done = (int)fwrite(data, 1, count, sys_handles[handle]);
 			if (done == 0) {
 				break;
 			}
@@ -270,12 +298,19 @@ int	Sys_FileTime(char* path)
 		return 1;
 	}
 
+#ifdef _WIN32
+	{
+		struct _stat info;
+		if (_stat(path, &info) == 0)
+			return 1;
+	}
+#endif
 	return -1;
 }
 
 void Sys_mkdir(char* path)
 {
-#ifdef __WIN32__
+#if defined(_WIN32) || defined(__WIN32__)
 	_mkdir(path);
 #else
 	mkdir(path, 0777);
@@ -300,10 +335,10 @@ double Sys_FloatTime(void)
 {
 	static Uint64 start_ticks = 0;
 	if (start_ticks == 0) {
-		start_ticks = SDL_GetTicks();
+		start_ticks = SDL_GetTicksNS();
 	}
-	Uint64 current_ticks = SDL_GetTicks();
-	return (current_ticks - start_ticks) / 1000.0;
+	Uint64 current_ticks = SDL_GetTicksNS();
+	return (double)(current_ticks - start_ticks) / 1000000000.0;
 }
 
 // =======================================================================
@@ -368,8 +403,11 @@ int main(int c, char** v)
 
 	signal(SIGFPE, SIG_IGN);
 
-	parms.memsize = 1024 * 1024 * 1024;
+	parms.memsize = 16 * 1024 * 1024;
 	parms.membase = malloc(parms.memsize);
+	if (!parms.membase) {
+		Sys_Error("Could not allocate %d bytes for the Quake hunk", parms.memsize);
+	}
 	parms.basedir = basedir;
 	// Disable cache, else it looks in the cache for config.cfg.
 	parms.cachedir = NULL;
@@ -378,11 +416,16 @@ int main(int c, char** v)
 	parms.argc = com_argc;
 	parms.argv = com_argv;
 
+	Sys_Printf("NakedWinQuake startup\n");
+	Sys_Printf("Working directory: %s\n", basedir);
 	Sys_Init();
 
 	Host_Init(&parms);
 
 	Cvar_RegisterVariable(&sys_nostdout);
+
+	if (!COM_CheckParm("-nointro"))
+		VID_PlayStartupVideo("intro.mpg");
 
 	oldtime = Sys_FloatTime() - 0.1;
 	while (1)
@@ -401,7 +444,7 @@ int main(int c, char** v)
 			time = sys_ticrate.value;
 		}
 
-		if (time > sys_ticrate.value * 2)
+			if (time > sys_ticrate.value * 2)
 			oldtime = newtime;
 		else
 			oldtime += time;

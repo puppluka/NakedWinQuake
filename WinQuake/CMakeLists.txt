@@ -1,6 +1,11 @@
 cmake_minimum_required(VERSION 3.10)
 project(NakedWinQuake VERSION 1.0.9 LANGUAGES C)
 
+# Keep this legacy C code on a supported language version even with modern
+# compilers whose default mode is C23 (where true/false are keywords).
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+
 # Options
 option(USE_SDL3 "Use SDL3" ON)
 option(BUILD_NULL "Build NULL version (no video/sound)" OFF)
@@ -142,14 +147,12 @@ set(COMMON_SOURCES
     modelgen.h
     mpdosock.h
     net.h
-    net_bsd.c
     net_bw.h
     net_dgrm.c
     net_dgrm.h
     net_loop.c
     net_loop.h
     net_main.c
-    net_udp.c
     net_udp.h
     net_vcr.c
     net_vcr.h
@@ -215,12 +218,12 @@ set(NONX86_SOURCES
     nonintel.c
 )
 
-# NULL platform sources (no video/sound)
+# NULL platform sources (headless video/audio output)
 set(NULL_SOURCES
     cd_null.c
     in_null.c
     net_none.c
-    snd_null.c
+    snd_dma_null.c
     sys_null.c
     vid_null.c
 )
@@ -264,6 +267,7 @@ set(WIN_SOURCES
     net_wins.h
     net_wipx.c
     net_wipx.h
+    net_udp.h
     snd_win.c
     sys_win.c
     sys_wina.S
@@ -282,10 +286,14 @@ set(LNX_SOURCES
 
 # SDL platform sources (cross-platform)
 set(SDL_SOURCES
-    cd_sdl.c
+    cd_vorbis.c
     snd_sdl.c
     sys_sdl.c
     vid_sdl.c
+    net_bsd.c
+    net_udp.c
+    pl_mpeg_sdl3.c
+    pl_mpeg_sdl3.h
 )
 
 # Select platform-specific sources
@@ -325,6 +333,10 @@ add_executable(winquake
     ${NONX86_SOURCES}
     ${PLATFORM_SOURCES}
 )
+set_target_properties(winquake PROPERTIES
+    C_STANDARD 11
+    C_STANDARD_REQUIRED ON
+)
 
 # Include directories
 target_include_directories(winquake
@@ -344,6 +356,12 @@ target_link_libraries(winquake
 if(NOT BUILD_NULL AND (USE_SDL3 OR (UNIX AND NOT APPLE) OR APPLE))
     target_link_libraries(winquake PRIVATE ${SDL_LIBRARY})
 endif()
+if(NOT BUILD_NULL AND USE_SDL3)
+    target_compile_definitions(winquake PRIVATE SDL)
+endif()
+if(BUILD_NULL)
+    target_compile_definitions(winquake PRIVATE BUILD_NULL)
+endif()
 
 # Platform-specific: X11 libraries for native Linux X11 build
 if(UNIX AND NOT APPLE AND NOT USE_SDL3 AND NOT BUILD_NULL)
@@ -362,7 +380,7 @@ if(WIN32)
     endif()
     
     # Set Windows subsystem
-    if(MSVC)
+    if(MSVC AND NOT BUILD_NULL)
         set_target_properties(winquake PROPERTIES
             WIN32_EXECUTABLE TRUE
         )

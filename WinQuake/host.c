@@ -261,6 +261,11 @@ void Host_WriteConfiguration (void)
 		Key_WriteBindings (f);
 		Cvar_WriteVariables (f);
 
+		// The selected resolution is a command, not a cvar, so record it here.
+		// config.cfg runs during startup, which re-applies the mode.
+		if (!isDedicated)
+			fprintf (f, "vid_mode %i\n", VID_GetMode());
+
 		fclose (f);
 	}
 }
@@ -415,9 +420,22 @@ void Host_ShutdownServer(qboolean crash)
 
 	sv.active = false;
 
-// stop all client sounds immediately
-	if (cls.state == ca_connected)
-		CL_Disconnect ();
+	// A local client connection is owned by the loopback driver, not an
+	// external client. Disconnect it once before dropping server clients.
+	if (cls.state != ca_dedicated && cls.netcon &&
+		cls.netcon->driver == 0 && !cls.netcon->disconnected) {
+		qsocket_t *local_connection = cls.netcon;
+		cls.netcon = NULL;
+		if (cls.state == ca_connected) {
+			SZ_Clear (&cls.message);
+			MSG_WriteByte (&cls.message, clc_disconnect);
+			NET_SendUnreliableMessage (local_connection, &cls.message);
+			SZ_Clear (&cls.message);
+		}
+		cls.state = ca_disconnected;
+		cls.signon = 0;
+		NET_Close (local_connection);
+	}
 
 // flush any pending messages - like the score!!!
 	start = Sys_FloatTime();
@@ -426,7 +444,8 @@ void Host_ShutdownServer(qboolean crash)
 		count = 0;
 		for (i=0, host_client = svs.clients ; i<svs.maxclients ; i++, host_client++)
 		{
-			if (host_client->active && host_client->message.cursize)
+			if (host_client->active && host_client->netconnection &&
+				!host_client->netconnection->disconnected && host_client->message.cursize)
 			{
 				if (NET_CanSendMessage (host_client->netconnection))
 				{
@@ -947,4 +966,3 @@ void Host_Shutdown(void)
 		VID_Shutdown();
 	}
 }
-

@@ -147,10 +147,13 @@ void S_Startup (void)
 
 		if (!rc)
 		{
-#ifndef	_WIN32
 			Con_Printf("S_Startup: SNDDMA_Init failed.\n");
-#endif
+			/* No audio device (headless session, lost endpoint, exclusive
+			 * access): run silently instead of dereferencing a NULL shm in
+			 * S_Init.  fakedma makes S_Init allocate the dummy DMA buffer. */
+			Con_Printf("Sound disabled: no audio device available.\n");
 			sound_started = 0;
+			fakedma = true;
 			return;
 		}
 	}

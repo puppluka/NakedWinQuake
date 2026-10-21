@@ -873,8 +873,10 @@ void NET_Init (void)
 	for (net_driverlevel=0 ; net_driverlevel<net_numdrivers ; net_driverlevel++)
 		{
 		controlSocket = net_drivers[net_driverlevel].Init();
-		if (controlSocket == -1)
+		if (controlSocket == -1) {
+			Con_Printf("NET_Init: driver %d failed to initialize; continuing without it\n", net_driverlevel);
 			continue;
+		}
 		net_drivers[net_driverlevel].initialized = true;
 		net_drivers[net_driverlevel].controlSock = controlSocket;
 		if (listening)
@@ -918,6 +920,7 @@ void		NET_Shutdown (void)
 	{
 		Con_Printf ("Closing vcrfile.\n");
 		Sys_FileClose(vcrFile);
+		vcrFile = -1;
 	}
 }
 

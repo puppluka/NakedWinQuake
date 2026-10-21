@@ -30,13 +30,12 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #define	LINUX_VERSION		1.30
 #define	X11_VERSION			1.10
 
-//define	PARANOID			// speed sapping error checking
+#define LUKA_VERSION		0.10
 
-#ifdef QUAKE2
-#define	GAMENAME	"id1"		// directory to look in by default
-#else
+//#define	PARANOID			// speed sapping error checking
+
 #define	GAMENAME	"id1"
-#endif
+#define GAMETITLE	"Quake"
 
 #include <math.h>
 #include <string.h>
@@ -46,13 +45,10 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include <setjmp.h>
 
 #if defined(_WIN32) && !defined(WINDED)
-
-#if defined(_M_IX86)
-#define __i386__	1
-#endif
-
+	#if defined(_M_IX86)
+		#define __i386__	1
+	#endif
 #else
-
 #endif
 
 #define id386	0
@@ -299,6 +295,7 @@ extern	double		realtime;			// not bounded in any way, changed at
 										// start of every frame, never reset
 
 void Host_ClearMemory (void);
+void Host_WriteConfiguration (void);
 void Host_ServerFrame (void);
 void Host_InitCommands (void);
 void Host_Init (quakeparms_t *parms);
@@ -330,4 +327,45 @@ void Chase_Reset (void);
 void Chase_Update (void);
 
 qboolean SV_RecursiveHullCheck (hull_t *hull, int num, float p1f, float p2f, vec3_t p1, vec3_t p2, trace_t *trace);
+#ifndef _WIN32
 unsigned long inet_addr(const char *cp);
+#endif
+
+//
+// in memory
+//
+
+typedef struct
+{
+	char    name[MAX_QPATH];
+	int             filepos, filelen;
+} packfile_t;
+
+typedef struct pack_s
+{
+	char    filename[MAX_OSPATH];
+	int             handle;
+	int             numfiles;
+	packfile_t* files;
+} pack_t;
+
+typedef struct searchpath_s
+{
+	char    filename[MAX_OSPATH];
+	pack_t* pack;          // only one of filename / pack will be used
+	struct searchpath_s* next;
+} searchpath_t;
+
+extern qboolean com_modified;
+extern qboolean com_base_modified;
+extern searchpath_t* com_searchpaths;
+extern searchpath_t* com_base_searchpaths;
+extern char com_basedir[MAX_OSPATH];
+void COM_AddGameDirectory (char *dir);
+void COM_ClearGameDirectories (void);
+qboolean COM_PrepareGameDirectories (char *gamedir, char *missiondir, qboolean use_base);
+qboolean COM_GameDirectoriesMatch (char *gamedir, char *missiondir, qboolean use_base);
+void COM_CancelPreparedGameDirectories (void);
+void COM_BeginPreparedGameDirectories (void);
+void COM_EndPreparedGameDirectories (void);
+void COM_CommitGameDirectories (void);

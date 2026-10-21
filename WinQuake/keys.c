@@ -743,6 +743,27 @@ void Key_Event (int key, qboolean down)
 
 /*
 ===================
+Key_CharEvent
+
+Printable characters arrive through SDL text input without a matching key-up
+event, so the autorepeat guard in Key_Event would swallow the second and later
+occurrences of the same character.  Clear the repeat state around the event.
+===================
+*/
+void Key_CharEvent (int key)
+{
+	if (key <= 0 || key >= 256)
+		return;
+
+	key_repeats[key] = 0;
+	Key_Event (key, true);
+	key_repeats[key] = 0;
+	keydown[key] = false;
+}
+
+
+/*
+===================
 Key_ClearStates
 ===================
 */

@@ -409,14 +409,20 @@ void M_SinglePlayer_Key (int key)
 		switch (m_singleplayer_cursor)
 		{
 		case 0:
-			if (sv.active)
-				if (!SCR_ModalMessage("Are you sure you want to\nstart a new game?\n"))
-					break;
+			/* The attract-mode demo loop is not a game the player chose, so a
+			 * new game may interrupt it.  Only a demo started from the console
+			 * or the command line blocks the menu. */
+			if (cls.demoplayback && !cls.demoloop)
+			{
+				Con_Printf ("Can't start a new game during demo playback (use stopdemo first).\n");
+				break;
+			}
+			if (sv.active && !cls.demoplayback &&
+				!SCR_ModalMessage("Are you sure you want to\nstart a new game?\n"))
+				break;
+			Cbuf_Clear ();
+			Cbuf_AddText ("disconnect\nmaxplayers 1\nmap start\n");
 			key_dest = key_game;
-			if (sv.active)
-				Cbuf_AddText ("disconnect\n");
-			Cbuf_AddText ("maxplayers 1\n");
-			Cbuf_AddText ("map start\n");
 			break;
 
 		case 1:
@@ -2777,8 +2783,13 @@ void M_GameOptions_Key (int key)
 		S_LocalSound ("misc/menu2.wav");
 		if (gameoptions_cursor == 0)
 		{
-			if (sv.active)
-				Cbuf_AddText ("disconnect\n");
+			if (cls.demoplayback && !cls.demoloop)
+			{
+				Con_Printf ("Can't start a server during demo playback (use stopdemo first).\n");
+				return;
+			}
+			Cbuf_Clear ();
+			Cbuf_AddText ("disconnect\n");
 			Cbuf_AddText ("listen 0\n");	// so host_netport will be re-examined
 			Cbuf_AddText ( va ("maxplayers %u\n", maxplayers) );
 			SCR_BeginLoadingPlaque ();

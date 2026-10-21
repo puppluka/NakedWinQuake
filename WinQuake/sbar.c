@@ -45,6 +45,7 @@ qpic_t	*sb_face_invuln;
 qpic_t	*sb_face_invis_invuln;
 
 qboolean	sb_showscores;
+static qboolean sbar_initialized;
 
 int			sb_lines;			// scan lines to draw
 
@@ -111,6 +112,25 @@ Sbar_Init
 void Sbar_Init (void)
 {
 	int		i;
+
+	sb_updates = 0;
+	sb_showscores = false;
+	memset (sb_nums, 0, sizeof(sb_nums));
+	memset (sb_weapons, 0, sizeof(sb_weapons));
+	memset (sb_ammo, 0, sizeof(sb_ammo));
+	memset (sb_armor, 0, sizeof(sb_armor));
+	memset (sb_items, 0, sizeof(sb_items));
+	memset (sb_sigil, 0, sizeof(sb_sigil));
+	memset (sb_faces, 0, sizeof(sb_faces));
+	memset (hsb_weapons, 0, sizeof(hsb_weapons));
+	memset (hsb_items, 0, sizeof(hsb_items));
+	memset (rsb_invbar, 0, sizeof(rsb_invbar));
+	memset (rsb_weapons, 0, sizeof(rsb_weapons));
+	memset (rsb_items, 0, sizeof(rsb_items));
+	memset (rsb_ammo, 0, sizeof(rsb_ammo));
+	sb_colon = sb_slash = NULL;
+	sb_face_invis = sb_face_invuln = sb_face_invis_invuln = sb_face_quad = NULL;
+	rsb_teambord = NULL;
 
 	for (i=0 ; i<10 ; i++)
 	{
@@ -188,8 +208,11 @@ void Sbar_Init (void)
 	sb_face_invis_invuln = Draw_PicFromWad ("face_inv2");
 	sb_face_quad = Draw_PicFromWad ("face_quad");
 
-	Cmd_AddCommand ("+showscores", Sbar_ShowScores);
-	Cmd_AddCommand ("-showscores", Sbar_DontShowScores);
+	if (!sbar_initialized)
+	{
+		Cmd_AddCommand ("+showscores", Sbar_ShowScores);
+		Cmd_AddCommand ("-showscores", Sbar_DontShowScores);
+	}
 
 	sb_sbar = Draw_PicFromWad ("sbar");
 	sb_ibar = Draw_PicFromWad ("ibar");
@@ -245,6 +268,8 @@ void Sbar_Init (void)
 		rsb_ammo[1] = Draw_PicFromWad ("r_ammomulti");
 		rsb_ammo[2] = Draw_PicFromWad ("r_ammoplasma");
 	}
+
+	sbar_initialized = true;
 }
 
 

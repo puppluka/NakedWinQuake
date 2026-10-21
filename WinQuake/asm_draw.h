@@ -1,39 +1,11 @@
-/*
-Copyright (C) 1996-1997 Id Software, Inc.
-
-This program is free software; you can redistribute it and/or
-modify it under the terms of the GNU General Public License
-as published by the Free Software Foundation; either version 2
-of the License, or (at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  
-
-See the GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program; if not, write to the Free Software
-Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
-
-*/
-//
 // asm_draw.h
-//
 // Include file for asm drawing routines.
 //
-
-//
-// !!! note that this file must match the corresponding C structures at all
-// times !!!
-//
+// !!! note that this file must match the corresponding C structures at all times !!!
 
 // !!! if this is changed, it must be changed in r_local.h too !!!
 #define	NEAR_CLIP	0.01
-
-// !!! if this is changed, it must be changed in r_local.h too !!!
 #define	CYCLE	128
-
 // espan_t structure
 // !!! if this is changed, it must be changed in r_shared.h too !!!
 #define espan_t_u    	0
@@ -41,14 +13,12 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #define espan_t_count   8
 #define espan_t_pnext	12
 #define espan_t_size    16
-
 // sspan_t structure
 // !!! if this is changed, it must be changed in d_local.h too !!!
 #define sspan_t_u    	0
 #define sspan_t_v	    4
 #define sspan_t_count   8
 #define sspan_t_size    12
-
 // spanpackage_t structure
 // !!! if this is changed, it must be changed in d_polyset.c too !!!
 #define spanpackage_t_pdest				0
@@ -60,7 +30,6 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #define spanpackage_t_light				24
 #define spanpackage_t_zi				28
 #define spanpackage_t_size				32 
-
 // edge_t structure
 // !!! if this is changed, it must be changed in r_shared.h too !!!
 #define et_u			0
@@ -72,7 +41,6 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #define et_nearzi		24
 #define et_owner		28
 #define et_size			32
-
 // surf_t structure
 // !!! if this is changed, it must be changed in r_shared.h too !!!
 #define SURF_T_SHIFT	6
@@ -92,7 +60,6 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #define st_d_zistepv	52
 #define st_pad			56
 #define st_size			64
-
 // clipplane_t structure
 // !!! if this is changed, it must be changed in r_local.h too !!!
 #define cp_normal		0
@@ -102,18 +69,15 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #define cp_rightedge	21
 #define cp_reserved		22
 #define cp_size			24
-
 // medge_t structure
 // !!! if this is changed, it must be changed in model.h too !!!
 #define me_v				0
 #define me_cachededgeoffset	4
 #define me_size				8
-
 // mvertex_t structure
 // !!! if this is changed, it must be changed in model.h too !!!
 #define mv_position		0
 #define mv_size			12
-
 // refdef_t structure
 // !!! if this is changed, it must be changed in render.h too !!!
 #define rd_vrect					0
@@ -140,12 +104,9 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #define rd_viewangles				124
 #define rd_ambientlight				136
 #define rd_size						140
-
 // mtriangle_t structure
 // !!! if this is changed, it must be changed in model.h too !!!
 #define mtri_facesfront		0
 #define mtri_vertindex		4
-#define mtri_size			16	// !!! if this changes, array indexing in !!!
-								// !!! d_polysa.s must be changed to match !!!
+#define mtri_size			16	// !!! if this changes, array indexing in d_polysa.s must be changed to match !!!
 #define mtri_shift			4
-

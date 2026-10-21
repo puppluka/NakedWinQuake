@@ -262,6 +262,7 @@ void Host_Map_f (void)
 		return;
 
 	cls.demonum = -1;		// stop demo loop in case this fails
+	cls.demoloop = false;	// a real map ends attract-mode playback
 
 	CL_Disconnect ();
 	Host_ShutdownServer(false);		
@@ -1869,6 +1870,104 @@ void Host_Stopdemo_f (void)
 	CL_Disconnect ();
 }
 
+/*
+==================
+Host_Resurrect_f
+
+Resurrects the local player edict in single-player games
+==================
+*/
+void Host_Resurrect_f(void)
+{
+	edict_t* ent;
+	int old_self;
+
+	if (!sv.active || cls.demoplayback)
+	{
+		Con_Printf("You must be in a game to resurrect.\n");
+		return;
+	}
+
+	if (pr_global_struct->deathmatch || sv.max_edicts <= 1)
+		return;
+
+	ent = EDICT_NUM(1);
+	if (!ent || ent->free)
+	{
+		Con_Printf("Error: PLAYER edict missing/freed.\n");
+		return;
+	}
+
+	if (ent->v.health > 0)
+	{
+		Con_Printf("You are still alive!\n");
+		return;
+	}
+
+	if (ent->v.deadflag != DEAD_DEAD)
+	{
+		Con_Printf("Not fully dead yet.\n");
+		return;
+	}
+
+	// Adjust vertical offset if gibbed
+	if (ent->v.health < -40)
+	{
+		ent->v.origin[2] += 24;
+		ent->v.flags = (int)ent->v.flags & ~FL_ONGROUND;
+		ent->v.mins[2] = -24;
+		ent->v.maxs[2] = 32;
+	}
+
+	// Base player & collision state
+	ent->v.health = 100;
+	ent->v.deadflag = DEAD_NO;
+	ent->v.takedamage = DAMAGE_AIM;
+	ent->v.solid = SOLID_SLIDEBOX;
+	ent->v.movetype = MOVETYPE_WALK;
+	ent->v.modelindex = 1;
+
+	// Restore the original player collision hull and view state.
+	ent->v.mins[0] = -16;
+	ent->v.mins[1] = -16;
+	ent->v.mins[2] = -24;
+	ent->v.maxs[0] = 16;
+	ent->v.maxs[1] = 16;
+	ent->v.maxs[2] = 32;
+	ent->v.flags = (int)ent->v.flags & ~FL_ONGROUND;
+	ent->v.punchangle[0] = ent->v.punchangle[1] = ent->v.punchangle[2] = 0;
+	ent->v.velocity[0] = ent->v.velocity[1] = ent->v.velocity[2] = 0;
+	cl.velocity[0] = cl.velocity[1] = cl.velocity[2] = 0;
+	ent->v.items = (int)ent->v.items & ~(IT_QUAD | IT_SUIT | IT_INVISIBILITY | IT_INVULNERABILITY);
+
+	// Reset camera, view angles, and recoil
+	ent->v.punchangle[0] = ent->v.punchangle[1] = ent->v.punchangle[2] = 0;
+	cl.punchangle[0] = cl.punchangle[1] = cl.punchangle[2] = 0;
+
+	ent->v.view_ofs[0] = 0;
+	ent->v.view_ofs[1] = 0;
+	ent->v.view_ofs[2] = 22;
+	cl.viewheight = 22;
+
+	ent->v.angles[2] = 0;
+	cl.viewangles[2] = 0;
+
+	// Clear visual powerup effects while preserving inventory and weapons.
+	ent->v.effects = 0;
+
+	// Reset weapon selection (force switch to axe)
+	ent->v.weapon = 0;
+	ent->v.impulse = 1;
+
+	// Execute QuakeC PostThink on resurrected player
+	old_self = pr_global_struct->self;
+	pr_global_struct->self = EDICT_TO_PROG(ent);
+	PR_ExecuteProgram(pr_global_struct->PlayerPostThink);
+	pr_global_struct->self = old_self;
+
+	Con_Printf("Resurrection successful.\n");
+}
+
 //=============================================================================
 
 /*
@@ -1915,6 +2014,7 @@ void Host_InitCommands (void)
 	Cmd_AddCommand ("startdemos", Host_Startdemos_f);
 	Cmd_AddCommand ("demos", Host_Demos_f);
 	Cmd_AddCommand ("stopdemo", Host_Stopdemo_f);
+	Cmd_AddCommand ("resurrect", Host_Resurrect_f);
 
 	Cmd_AddCommand ("viewmodel", Host_Viewmodel_f);
 	Cmd_AddCommand ("viewframe", Host_Viewframe_f);

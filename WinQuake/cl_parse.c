@@ -290,7 +290,7 @@ void CL_ParseServerInfo (void)
 		cl.model_precache[i] = Mod_ForName (model_precache[i], false);
 		if (cl.model_precache[i] == NULL)
 		{
-			Con_Printf("Model %s not found\n", model_precache[i]);
+			Con_Printf ("Model %s not found\n", model_precache[i]);
 			return;
 		}
 		CL_KeepaliveMessage ();

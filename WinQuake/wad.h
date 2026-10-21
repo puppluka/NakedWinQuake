@@ -67,6 +67,9 @@ extern	lumpinfo_t	*wad_lumps;
 extern	byte		*wad_base;
 
 void	W_LoadWadFile (char *filename);
+qboolean W_ValidateWadFile (char *filename);
+void W_CancelValidatedWadFile (void);
+void W_CommitValidatedWadFile (void);
 void	W_CleanupName (char *in, char *out);
 lumpinfo_t	*W_GetLumpinfo (char *name);
 void	*W_GetLumpName (char *name);

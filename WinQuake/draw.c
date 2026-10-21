@@ -109,8 +109,14 @@ Draw_Init
 */
 void Draw_Init (void)
 {
-	int		i;
-
+	{
+		int i;
+		for (i = 0; i < menu_numcachepics; i++)
+			if (menu_cachepics[i].cache.data)
+				Cache_Free (&menu_cachepics[i].cache);
+		memset (menu_cachepics, 0, sizeof(menu_cachepics));
+		menu_numcachepics = 0;
+	}
 	draw_chars = W_GetLumpName ("conchars");
 	draw_disc = W_GetLumpName ("disc");
 	draw_backtile = W_GetLumpName ("backtile");
@@ -877,7 +883,6 @@ Call before beginning any disc IO.
 */
 void Draw_BeginDisc (void)
 {
-
 	D_BeginDirectRect (vid.width - 24, 0, draw_disc->data, 24, 24);
 }
 

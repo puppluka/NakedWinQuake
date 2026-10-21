@@ -19,7 +19,6 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 */
 // screen.c -- master for refresh, status bar, console, chat, notify, etc
 
-#include <SDL3/SDL.h>
 #include "quakedef.h"
 #include "r_local.h"
 
@@ -68,7 +67,10 @@ qboolean	block_drawing;
 
 void SCR_ScreenShot_f (void);
 
+#ifdef SDL
+#include <SDL3/SDL.h>
 extern SDL_Renderer* renderer;
+#endif
 
 /*
 ===============================================================================
@@ -319,22 +321,27 @@ SCR_Init
 */
 void SCR_Init (void)
 {
-	Cvar_RegisterVariable (&scr_fov);
-	Cvar_RegisterVariable (&scr_viewsize);
-	Cvar_RegisterVariable (&scr_conspeed);
-	Cvar_RegisterVariable (&scr_showram);
-	Cvar_RegisterVariable (&scr_showturtle);
-	Cvar_RegisterVariable (&scr_showpause);
-	Cvar_RegisterVariable (&scr_centertime);
-	Cvar_RegisterVariable (&scr_printspeed);
+	if (!scr_initialized)
+	{
+		Cvar_RegisterVariable (&scr_fov);
+		Cvar_RegisterVariable (&scr_viewsize);
+		Cvar_RegisterVariable (&scr_conspeed);
+		Cvar_RegisterVariable (&scr_showram);
+		Cvar_RegisterVariable (&scr_showturtle);
+		Cvar_RegisterVariable (&scr_showpause);
+		Cvar_RegisterVariable (&scr_centertime);
+		Cvar_RegisterVariable (&scr_printspeed);
 
 //
 // register our commands
 //
-	Cmd_AddCommand ("screenshot",SCR_ScreenShot_f);
-	Cmd_AddCommand ("sizeup",SCR_SizeUp_f);
-	Cmd_AddCommand ("sizedown",SCR_SizeDown_f);
+		Cmd_AddCommand ("screenshot",SCR_ScreenShot_f);
+		Cmd_AddCommand ("sizeup",SCR_SizeUp_f);
+		Cmd_AddCommand ("sizedown",SCR_SizeDown_f);
+	}
 
+	scr_fullupdate = 0;
+	scr_copyeverything = 1;
 	scr_ram = Draw_PicFromWad ("ram");
 	scr_net = Draw_PicFromWad ("net");
 	scr_turtle = Draw_PicFromWad ("turtle");
@@ -551,6 +558,7 @@ unsigned char* convert_indexed_to_rgb(const unsigned char* indexed_data, int wid
 	return rgb_data;
 }
 
+#ifdef SDL
 static void WritePNGfile(char* filename, void* pixels, int width, int height, int pitch, int num_components) {
 	int success = stbi_write_png(filename,
 		width,
@@ -563,6 +571,7 @@ static void WritePNGfile(char* filename, void* pixels, int width, int height, in
 		Con_Printf("WritePNGfile: failed to write %s\n", filename);
 	}
 }
+#endif /* SDL */
 
 /* 
 ================== 
@@ -571,6 +580,7 @@ SCR_ScreenShot_f
 */  
 void SCR_ScreenShot_f(void)
 {
+#ifdef SDL
 	int     i;
 	char    pngname[80];
 	char    checkname[MAX_OSPATH];
@@ -604,13 +614,24 @@ void SCR_ScreenShot_f(void)
 		return;
 	}
 
+	// Convert the surface to strict RGBA byte order for stb_image_write
+	SDL_Surface* rgba_surface = SDL_ConvertSurface(ss_surface, SDL_PIXELFORMAT_RGBA32);
+	if (!rgba_surface) {
+		Con_Printf("SCR_ScreenShot_f: Couldn't convert surface to RGBA: %s\n", SDL_GetError());
+		SDL_DestroySurface(ss_surface);
+		return;
+	}
+
 	int num_components = 4;
 
-	WritePNGfile(pngname, ss_surface->pixels, ss_surface->w, ss_surface->h, 
-	             ss_surface->pitch, num_components);
+	WritePNGfile(pngname, rgba_surface->pixels, rgba_surface->w, rgba_surface->h,
+	             rgba_surface->pitch, num_components);
 	
-	SDL_DestroySurface(ss_surface);
-	Con_Printf("Wrote %s\n", pngname);
+	SDL_DestroySurface(rgba_surface);
+	SDL_DestroySurface(ss_surface);		Con_Printf("Wrote %s\n", pngname);
+#else
+	Con_Printf("SCR_ScreenShot_f: screenshots are unavailable in this build.\n");
+#endif
 }
 
 //=============================================================================

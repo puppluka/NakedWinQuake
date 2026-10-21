@@ -541,7 +541,7 @@ void R_DrawEntitiesOnList (void)
 	{
 		currententity = cl_visedicts[i];
 
-		if (currententity == &cl_entities[cl.viewentity])
+		if (currententity == &cl_entities[cl.viewentity] && !chase_active.value)
 			continue;	// don't draw the player
 
 		switch (currententity->model->type)

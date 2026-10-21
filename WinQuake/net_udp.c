@@ -21,13 +21,26 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #include "quakedef.h"
 
+#if defined(_WIN32) || defined(__WIN32__)
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#pragma comment(lib, "ws2_32.lib")
+
+#define MAXHOSTNAMELEN 256
+#define ioctl ioctlsocket
+#define close closesocket
+#define EWOULDBLOCK WSAEWOULDBLOCK
+#define ECONNREFUSED WSAECONNREFUSED
+#else
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netdb.h>
+#include <arpa/inet.h>
 #include <sys/param.h>
 #include <sys/ioctl.h>
 #include <errno.h>
+#endif
 
 #ifdef __sun__
 #include <sys/filio.h>
@@ -37,8 +50,16 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include <libc.h>
 #endif
 
+#ifndef _WIN32
 extern int gethostname (char *, int);
 extern int close (int);
+#else
+#define MAXHOSTNAMELEN 256
+#define ioctl ioctlsocket
+#define close closesocket
+#define EWOULDBLOCK WSAEWOULDBLOCK
+#define ECONNREFUSED WSAECONNREFUSED
+#endif
 
 extern cvar_t hostname;
 
@@ -46,6 +67,9 @@ static int net_acceptsocket = -1;		// socket for fielding new connections
 static int net_controlsocket;
 static int net_broadcastsocket = 0;
 static struct qsockaddr broadcastaddr;
+#ifdef _WIN32
+static qboolean winsock_initialized;
+#endif
 
 static unsigned long myAddr;
 
@@ -63,10 +87,30 @@ int UDP_Init (void)
 	if (COM_CheckParm ("-noudp"))
 		return -1;
 
+#ifdef _WIN32
+	if (!winsock_initialized)
+	{
+		WSADATA winsock_data;
+		if (WSAStartup (MAKEWORD(2, 2), &winsock_data) != 0)
+		{
+			Con_Printf ("UDP_Init: couldn't initialize Winsock\n");
+			return -1;
+		}
+		winsock_initialized = true;
+	}
+#endif
+
 	// determine my name & address
-	gethostname(buff, MAXHOSTNAMELEN);
-	local = gethostbyname(buff);
-	myAddr = *(int *)local->h_addr_list[0];
+	if (gethostname(buff, MAXHOSTNAMELEN) != 0)
+		buff[0] = 0;
+	local = buff[0] ? gethostbyname(buff) : NULL;
+	if (local && local->h_addr_list && local->h_addr_list[0])
+		myAddr = *(int *)local->h_addr_list[0];
+	else
+	{
+		Con_Printf("UDP_Init: couldn't resolve local hostname; using loopback address\n");
+		myAddr = inet_addr("127.0.0.1");
+	}
 
 	// if the quake hostname isn't set, set it to the machine name
 	if (Q_strcmp(hostname.string, "UNNAMED") == 0)
@@ -76,7 +120,14 @@ int UDP_Init (void)
 	}
 
 	if ((net_controlsocket = UDP_OpenSocket (0)) == -1)
-		Sys_Error("UDP_Init: Unable to open control socket\n");
+	{
+		Con_Printf ("UDP_Init: unable to open control socket\n");
+#ifdef _WIN32
+		WSACleanup ();
+		winsock_initialized = false;
+#endif
+		return -1;
+	}
 
 	((struct sockaddr_in *)&broadcastaddr)->sin_family = AF_INET;
 	((struct sockaddr_in *)&broadcastaddr)->sin_addr.s_addr = INADDR_BROADCAST;
@@ -99,7 +150,18 @@ int UDP_Init (void)
 void UDP_Shutdown (void)
 {
 	UDP_Listen (false);
-	UDP_CloseSocket (net_controlsocket);
+	if (net_controlsocket != -1)
+	{
+		UDP_CloseSocket (net_controlsocket);
+		net_controlsocket = -1;
+	}
+#ifdef _WIN32
+	if (winsock_initialized)
+	{
+		WSACleanup ();
+		winsock_initialized = false;
+	}
+#endif
 }
 
 //=============================================================================
@@ -129,12 +191,20 @@ int UDP_OpenSocket (int port)
 {
 	int newsocket;
 	struct sockaddr_in address;
-	qboolean _true = true;
+#ifdef _WIN32
+	u_long nonblocking = 1;
+#else
+	qboolean nonblocking = true;
+#endif
 
 	if ((newsocket = socket (PF_INET, SOCK_DGRAM, IPPROTO_UDP)) == -1)
 		return -1;
 
-	if (ioctl (newsocket, FIONBIO, (char *)&_true) == -1)
+#ifdef _WIN32
+	if (ioctl (newsocket, FIONBIO, &nonblocking) == SOCKET_ERROR)
+#else
+	if (ioctl (newsocket, FIONBIO, (char *)&nonblocking) == -1)
+#endif
 		goto ErrorReturn;
 
 	address.sin_family = AF_INET;
@@ -242,13 +312,29 @@ int UDP_CheckNewConnections (void)
 
 //=============================================================================
 
+/*
+ * Winsock reports socket errors through WSAGetLastError(), not errno, so the
+ * POSIX tests below never matched on Windows and an empty non-blocking read
+ * looked like a fatal error (the connection was dropped after the first
+ * packet).
+ */
+static qboolean UDP_WouldBlock (void)
+{
+#ifdef _WIN32
+	int err = WSAGetLastError ();
+	return (err == WSAEWOULDBLOCK || err == WSAECONNRESET) ? true : false;
+#else
+	return (errno == EWOULDBLOCK || errno == ECONNREFUSED) ? true : false;
+#endif
+}
+
 int UDP_Read (int socket, byte *buf, int len, struct qsockaddr *addr)
 {
 	int addrlen = sizeof (struct qsockaddr);
 	int ret;
 
 	ret = recvfrom (socket, buf, len, 0, (struct sockaddr *)addr, &addrlen);
-	if (ret == -1 && (errno == EWOULDBLOCK || errno == ECONNREFUSED))
+	if (ret == -1 && UDP_WouldBlock ())
 		return 0;
 	return ret;
 }
@@ -295,7 +381,7 @@ int UDP_Write (int socket, byte *buf, int len, struct qsockaddr *addr)
 	int ret;
 
 	ret = sendto (socket, buf, len, 0, (struct sockaddr *)addr, sizeof(struct qsockaddr));
-	if (ret == -1 && errno == EWOULDBLOCK)
+	if (ret == -1 && UDP_WouldBlock ())
 		return 0;
 	return ret;
 }

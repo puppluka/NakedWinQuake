@@ -73,6 +73,7 @@ qsocket_t *Loop_Connect (char *host)
 	{
 		if ((loop_client = NET_NewQSocket ()) == NULL)
 		{
+			localconnectpending = false;
 			Con_Printf("Loop_Connect: no qsocket available\n");
 			return NULL;
 		}
@@ -86,6 +87,9 @@ qsocket_t *Loop_Connect (char *host)
 	{
 		if ((loop_server = NET_NewQSocket ()) == NULL)
 		{
+			NET_FreeQSocket (loop_client);
+			loop_client = NULL;
+			localconnectpending = false;
 			Con_Printf("Loop_Connect: no qsocket available\n");
 			return NULL;
 		}
@@ -95,6 +99,8 @@ qsocket_t *Loop_Connect (char *host)
 	loop_server->sendMessageLength = 0;
 	loop_server->canSend = true;
 
+	loop_client->driver = net_driverlevel;
+	loop_server->driver = net_driverlevel;
 	loop_client->driverdata = (void *)loop_server;
 	loop_server->driverdata = (void *)loop_client;
 	
@@ -233,13 +239,30 @@ qboolean Loop_CanSendUnreliableMessage (qsocket_t *sock)
 
 void Loop_Close (qsocket_t *sock)
 {
-	if (sock->driverdata)
-		((qsocket_t *)sock->driverdata)->driverdata = NULL;
+	qsocket_t *peer = (qsocket_t *)sock->driverdata;
+
+	if (peer)
+	{
+		peer->driverdata = NULL;
+		/* Free the paired local endpoint too. Otherwise every map restart
+		 * leaks one of the two fixed qsocket slots. */
+		if (peer == loop_client)
+			loop_client = NULL;
+		else if (peer == loop_server)
+			loop_server = NULL;
+		else
+			Sys_Error ("Loop_Close: invalid peer socket");
+		if (!peer->disconnected)
+			NET_FreeQSocket (peer);
+	}
+	localconnectpending = false;
 	sock->receiveMessageLength = 0;
 	sock->sendMessageLength = 0;
 	sock->canSend = true;
 	if (sock == loop_client)
 		loop_client = NULL;
-	else
+	else if (sock == loop_server)
 		loop_server = NULL;
+	else if (!sock->disconnected)
+		Sys_Error ("Loop_Close: invalid socket");
 }

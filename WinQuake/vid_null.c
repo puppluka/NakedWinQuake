@@ -22,7 +22,8 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "quakedef.h"
 #include "d_local.h"
 
-viddef_t	vid;				// global video state
+void (*vid_menudrawfn)(void) = NULL;
+void (*vid_menukeyfn)(int key) = NULL;
 
 #define	BASEWIDTH	320
 #define	BASEHEIGHT	200
@@ -36,10 +37,12 @@ unsigned	d_8to24table[256];
 
 void	VID_SetPalette (unsigned char *palette)
 {
+	(void)palette;
 }
 
 void	VID_ShiftPalette (unsigned char *palette)
 {
+	(void)palette;
 }
 
 void	VID_Init (unsigned char *palette)
@@ -72,6 +75,7 @@ D_BeginDirectRect
 */
 void D_BeginDirectRect (int x, int y, byte *pbitmap, int width, int height)
 {
+	(void)x; (void)y; (void)pbitmap; (void)width; (void)height;
 }
 
 
@@ -82,6 +86,7 @@ D_EndDirectRect
 */
 void D_EndDirectRect (int x, int y, int width, int height)
 {
+	(void)x; (void)y; (void)width; (void)height;
 }
 
 
